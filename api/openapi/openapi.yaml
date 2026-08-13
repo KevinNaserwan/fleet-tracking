@@ -1,0 +1,617 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: Fleet Tracking API
+  version: 1.0.0-m1
+  summary: Milestone 1 identity, session, and health contract
+  description: |
+    Tenant-scoped API contract for Milestone 1. Access tokens are bearer JWTs.
+    Refresh tokens are opaque credentials and are rotated on refresh; servers persist
+    only their SHA-256 hashes. All JSON responses except empty responses use either a
+    success envelope with `data` or an error envelope with `error`.
+servers:
+  - url: /
+    description: Current deployment
+tags:
+  - name: Authentication
+  - name: Identity
+  - name: Health
+paths:
+  /api/v1/auth/login:
+    post:
+      tags: [Authentication]
+      operationId: login
+      summary: Authenticate a tenant user
+      description: Returns a short-lived bearer access token and a rotating opaque refresh token.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              demo:
+                value:
+                  tenantSlug: nusantara-logistics
+                  email: admin@fleet.local
+                  password: Admin123!
+      responses:
+        '200':
+          description: Authentication succeeded
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/auth/refresh:
+    post:
+      tags: [Authentication]
+      operationId: refreshSession
+      summary: Rotate a refresh token
+      description: Invalidates the presented refresh token and returns a new access/refresh token pair in the same token family.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Token rotation succeeded
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/auth/logout:
+    post:
+      tags: [Authentication]
+      operationId: logout
+      summary: Revoke the current refresh token
+      description: Revokes the supplied refresh token. Repeating the request is safe and returns the same success shape.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+      responses:
+        '200':
+          description: Session is logged out
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/me:
+    get:
+      tags: [Identity]
+      operationId: getCurrentUser
+      summary: Get the authenticated principal
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Current tenant user, roles, and effective permissions
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /health/live:
+    get:
+      tags: [Health]
+      operationId: getLiveness
+      summary: Process liveness probe
+      description: Does not perform dependency checks.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Process is alive
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                data:
+                  status: ok
+                  service: fleet-tracking-api
+                  version: 1.0.0
+                  timestamp: '2026-08-13T10:15:30Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /health/ready:
+    get:
+      tags: [Health]
+      operationId: getReadiness
+      summary: Dependency readiness probe
+      description: Reports ready only when required dependencies, including PostgreSQL, are usable.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Service is ready
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+        '503':
+          description: One or more required dependencies are unavailable
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 1
+              description: Suggested retry delay in seconds.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Short-lived access token returned by login or refresh.
+  parameters:
+    RequestId:
+      name: X-Request-ID
+      in: header
+      required: false
+      description: Optional caller-provided correlation ID. The service returns the effective ID.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+        pattern: '^[A-Za-z0-9._:/-]+$'
+  headers:
+    RequestId:
+      description: Correlation ID for this request.
+      schema:
+        type: string
+    NoStore:
+      description: Authentication and health payloads must not be cached.
+      schema:
+        type: string
+        const: no-store
+  responses:
+    BadRequest:
+      description: Malformed JSON or request syntax
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: bad_request
+              message: Request body is not valid JSON.
+              requestId: req_01J5EXAMPLE
+    Unauthorized:
+      description: Credentials or bearer token are missing, invalid, expired, or revoked
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+        WWW-Authenticate:
+          schema:
+            type: string
+          description: Bearer authentication challenge when applicable.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: unauthorized
+              message: Authentication is required.
+              requestId: req_01J5EXAMPLE
+    Forbidden:
+      description: Authenticated principal lacks the required permission
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Request conflicts with current resource state
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ValidationFailed:
+      description: One or more request fields failed validation
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: validation_failed
+              message: One or more fields are invalid.
+              requestId: req_01J5EXAMPLE
+              details:
+                - field: email
+                  code: invalid_format
+                  message: Must be a valid email address.
+    RateLimited:
+      description: Too many requests
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+          description: Retry delay in seconds.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Unexpected server error
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [tenantSlug, email, password]
+      properties:
+        tenantSlug:
+          $ref: '#/components/schemas/TenantSlug'
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        password:
+          type: string
+          minLength: 8
+          maxLength: 1024
+          writeOnly: true
+    RefreshRequest:
+      type: object
+      additionalProperties: false
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          $ref: '#/components/schemas/RefreshTokenInput'
+    LogoutRequest:
+      type: object
+      additionalProperties: false
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          $ref: '#/components/schemas/RefreshTokenInput'
+    AuthResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [tokens, user]
+          properties:
+            tokens:
+              $ref: '#/components/schemas/TokenPair'
+            user:
+              $ref: '#/components/schemas/CurrentUser'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    TokenResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/TokenPair'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    LogoutResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [loggedOut]
+          properties:
+            loggedOut:
+              type: boolean
+              const: true
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    MeResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/CurrentUser'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    TokenPair:
+      type: object
+      additionalProperties: false
+      required: [accessToken, refreshToken, tokenType, expiresIn]
+      properties:
+        accessToken:
+          type: string
+          minLength: 1
+          readOnly: true
+          description: Short-lived signed JWT.
+        refreshToken:
+          $ref: '#/components/schemas/RefreshTokenOutput'
+        tokenType:
+          type: string
+          const: Bearer
+        expiresIn:
+          type: integer
+          minimum: 1
+          description: Access-token lifetime in seconds.
+    RefreshTokenInput:
+      type: string
+      minLength: 32
+      maxLength: 2048
+      writeOnly: true
+      description: Opaque rotating credential. It is never stored in plaintext by the service.
+    RefreshTokenOutput:
+      type: string
+      minLength: 32
+      maxLength: 2048
+      readOnly: true
+      description: Newly issued opaque rotating credential. It is never stored in plaintext by the service.
+    CurrentUser:
+      type: object
+      additionalProperties: false
+      required: [id, tenant, email, fullName, roles, permissions]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant:
+          $ref: '#/components/schemas/TenantSummary'
+        email:
+          type: string
+          format: email
+        fullName:
+          type: string
+        roles:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            pattern: '^[a-z][a-z0-9_]{1,62}$'
+        permissions:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            pattern: '^[a-z][a-z0-9_]*:[a-z][a-z0-9_]*$'
+    TenantSummary:
+      type: object
+      additionalProperties: false
+      required: [id, slug, name, timezone]
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          $ref: '#/components/schemas/TenantSlug'
+        name:
+          type: string
+        timezone:
+          type: string
+          example: Asia/Jakarta
+    TenantSlug:
+      type: string
+      minLength: 1
+      maxLength: 63
+      pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/HealthStatus'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    ReadinessResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [status, service, version, timestamp, checks]
+          properties:
+            status:
+              type: string
+              enum: [ready, not_ready]
+            service:
+              type: string
+            version:
+              type: string
+            timestamp:
+              type: string
+              format: date-time
+            checks:
+              type: object
+              additionalProperties:
+                $ref: '#/components/schemas/DependencyCheck'
+              example:
+                database:
+                  status: up
+                  latencyMs: 3
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    HealthStatus:
+      type: object
+      additionalProperties: false
+      required: [status, service, version, timestamp]
+      properties:
+        status:
+          type: string
+          const: ok
+        service:
+          type: string
+        version:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+    DependencyCheck:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [up, down]
+        latencyMs:
+          type: integer
+          minimum: 0
+        message:
+          type: string
+    ResponseMeta:
+      type: object
+      additionalProperties: false
+      properties:
+        requestId:
+          type: string
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/Error'
+    Error:
+      type: object
+      additionalProperties: false
+      required: [code, message, requestId]
+      properties:
+        code:
+          type: string
+          pattern: '^[a-z][a-z0-9_]*$'
+          examples: [bad_request, unauthorized, validation_failed]
+        message:
+          type: string
+        requestId:
+          type: string
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/ErrorDetail'
+    ErrorDetail:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        field:
+          type: string
+          description: JSON field path when the error is field-specific.
+        code:
+          type: string
+        message:
+          type: string

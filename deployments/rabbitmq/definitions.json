@@ -1,0 +1,32 @@
+{
+  "exchanges": [
+    {"name":"fleet.events","vhost":"/","type":"topic","durable":true,"auto_delete":false,"internal":false,"arguments":{}},
+    {"name":"notification.events","vhost":"/","type":"topic","durable":true,"auto_delete":false,"internal":false,"arguments":{}},
+    {"name":"fleet.retry","vhost":"/","type":"headers","durable":true,"auto_delete":false,"internal":false,"arguments":{}},
+    {"name":"fleet.dlx","vhost":"/","type":"topic","durable":true,"auto_delete":false,"internal":false,"arguments":{}}
+  ],
+  "queues": [
+    {"name":"tracking.geofence.v1","vhost":"/","durable":true,"auto_delete":false,"arguments":{"x-dead-letter-exchange":"fleet.dlx"}},
+    {"name":"tracking.trip.v1","vhost":"/","durable":true,"auto_delete":false,"arguments":{"x-dead-letter-exchange":"fleet.dlx"}},
+    {"name":"tracking.cache.v1","vhost":"/","durable":true,"auto_delete":false,"arguments":{"x-dead-letter-exchange":"fleet.dlx"}},
+    {"name":"tracking.websocket.v1","vhost":"/","durable":true,"auto_delete":false,"arguments":{"x-dead-letter-exchange":"fleet.dlx"}},
+    {"name":"alerts.offline.v1","vhost":"/","durable":true,"auto_delete":false,"arguments":{"x-dead-letter-exchange":"fleet.dlx"}},
+    {"name":"notifications.delivery.v1","vhost":"/","durable":true,"auto_delete":false,"arguments":{"x-dead-letter-exchange":"fleet.dlx"}},
+    {"name":"fleet.retry.30s","vhost":"/","durable":true,"auto_delete":false,"arguments":{"x-message-ttl":30000,"x-dead-letter-exchange":"fleet.events"}},
+    {"name":"fleet.retry.5m","vhost":"/","durable":true,"auto_delete":false,"arguments":{"x-message-ttl":300000,"x-dead-letter-exchange":"fleet.events"}},
+    {"name":"fleet.retry.30m","vhost":"/","durable":true,"auto_delete":false,"arguments":{"x-message-ttl":1800000,"x-dead-letter-exchange":"fleet.events"}},
+    {"name":"fleet.dead","vhost":"/","durable":true,"auto_delete":false,"arguments":{}}
+  ],
+  "bindings": [
+    {"source":"fleet.events","vhost":"/","destination":"tracking.geofence.v1","destination_type":"queue","routing_key":"telemetry.received.v1","arguments":{}},
+    {"source":"fleet.events","vhost":"/","destination":"tracking.trip.v1","destination_type":"queue","routing_key":"telemetry.received.v1","arguments":{}},
+    {"source":"fleet.events","vhost":"/","destination":"tracking.cache.v1","destination_type":"queue","routing_key":"telemetry.received.v1","arguments":{}},
+    {"source":"fleet.events","vhost":"/","destination":"tracking.websocket.v1","destination_type":"queue","routing_key":"telemetry.received.v1","arguments":{}},
+    {"source":"fleet.events","vhost":"/","destination":"alerts.offline.v1","destination_type":"queue","routing_key":"vehicle.*.v1","arguments":{}},
+    {"source":"notification.events","vhost":"/","destination":"notifications.delivery.v1","destination_type":"queue","routing_key":"notification.requested.v1","arguments":{}},
+    {"source":"fleet.retry","vhost":"/","destination":"fleet.retry.30s","destination_type":"queue","routing_key":"","arguments":{"x-match":"all","x-retry-delay":"30s"}},
+    {"source":"fleet.retry","vhost":"/","destination":"fleet.retry.5m","destination_type":"queue","routing_key":"","arguments":{"x-match":"all","x-retry-delay":"5m"}},
+    {"source":"fleet.retry","vhost":"/","destination":"fleet.retry.30m","destination_type":"queue","routing_key":"","arguments":{"x-match":"all","x-retry-delay":"30m"}},
+    {"source":"fleet.dlx","vhost":"/","destination":"fleet.dead","destination_type":"queue","routing_key":"#","arguments":{}}
+  ]
+}

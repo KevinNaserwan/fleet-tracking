@@ -1,0 +1,51 @@
+services:
+  postgres:
+    ports: !reset []
+
+  redis:
+    ports: !reset []
+
+  rabbitmq:
+    ports: !reset []
+
+  api:
+    ports: !override
+      - 127.0.0.1:${FLEET_API_PORT:-18180}:8080
+    networks:
+      - edge
+      - app
+      - data
+      - monitoring
+
+  web:
+    ports: !override
+      - 127.0.0.1:${FLEET_WEB_PORT:-13100}:3000
+    networks:
+      - edge
+      - app
+
+  prometheus:
+    ports: !override
+      - 127.0.0.1:${FLEET_PROMETHEUS_PORT:-19090}:9090
+
+  grafana:
+    ports: !override
+      - 127.0.0.1:${FLEET_GRAFANA_PORT:-13001}:3000
+
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: 10.77.13.0/24
+  app:
+    ipam:
+      config:
+        - subnet: 10.77.10.0/24
+  data:
+    ipam:
+      config:
+        - subnet: 10.77.11.0/24
+  monitoring:
+    ipam:
+      config:
+        - subnet: 10.77.12.0/24

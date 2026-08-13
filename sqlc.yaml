@@ -1,0 +1,16 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "db/migrations/000001_milestone1.up.sql"
+    queries: "db/queries"
+    gen:
+      go:
+        package: "db"
+        out: "internal/db/generated"
+        sql_package: "pgx/v5"
+        emit_db_tags: true
+        emit_json_tags: true
+        emit_empty_slices: true
+        emit_interface: true
+        emit_pointers_for_null_types: true
+        emit_result_struct_pointers: true

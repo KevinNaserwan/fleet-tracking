@@ -1,0 +1,361 @@
+name: ${COMPOSE_PROJECT_NAME:-fleet-tracking}
+
+x-app-environment: &app-environment
+  APP_ENV: ${APP_ENV:-development}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  DATABASE_URL: ${DATABASE_URL:?copy .env.example to .env and set DATABASE_URL}
+  REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+  RABBITMQ_URL: ${RABBITMQ_URL:?set RABBITMQ_URL}
+  JWT_ISSUER: ${JWT_ISSUER:-fleet-tracking}
+  JWT_AUDIENCE: ${JWT_AUDIENCE:-fleet-dashboard}
+  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set a random JWT_ACCESS_SECRET of at least 32 bytes}
+  ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-15m}
+  REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-168h}
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+  TRUSTED_PROXIES: ${TRUSTED_PROXIES:-127.0.0.1/32}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-otel-collector:4317}
+  OTEL_EXPORTER_OTLP_INSECURE: ${OTEL_EXPORTER_OTLP_INSECURE:-true}
+
+x-app-base: &app-base
+  image: fleet-tracking-api:${IMAGE_TAG:-latest}
+  build:
+    context: .
+    dockerfile: deployments/docker/Dockerfile
+  restart: unless-stopped
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp:size=32m,mode=1777
+  security_opt:
+    - no-new-privileges:true
+  environment: *app-environment
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    rabbitmq-init:
+      condition: service_completed_successfully
+  networks:
+    - app
+    - data
+    - monitoring
+
+services:
+  postgres:
+    image: postgis/postgis:17-3.5-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-fleet_tracking}
+      POSTGRES_USER: ${POSTGRES_USER:-fleet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: --data-checksums
+    ports:
+      - 127.0.0.1:${POSTGRES_PORT:-5432}:5432
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    shm_size: 256mb
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 1536m
+    networks:
+      - data
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD}", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - 127.0.0.1:${REDIS_PORT:-6379}:6379
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$${REDIS_PASSWORD}\" redis-cli ping | grep -qx PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 384m
+    networks:
+      - data
+
+  rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    restart: unless-stopped
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-fleet}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: /
+    ports:
+      - 127.0.0.1:${RABBITMQ_PORT:-5672}:5672
+      - 127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./deployments/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./deployments/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 768m
+    networks:
+      - data
+      - monitoring
+
+  rabbitmq-init:
+    image: rabbitmq:4.1-management-alpine
+    restart: "no"
+    environment:
+      RABBITMQADMIN_TARGET_HOST: rabbitmq
+      RABBITMQADMIN_TARGET_PORT: "15672"
+      RABBITMQADMIN_USERNAME: ${RABBITMQ_USER:-fleet}
+      RABBITMQADMIN_PASSWORD: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD}
+    command: ["rabbitmqadmin", "definitions", "import", "--file", "/definitions/definitions.json", "--non-interactive"]
+    volumes:
+      - ./deployments/rabbitmq/definitions.json:/definitions/definitions.json:ro
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - data
+
+  migrate:
+    image: migrate/migrate:v4.18.3
+    profiles: ["tools"]
+    command: ["-path=/migrations", "-database=${DATABASE_URL:?set DATABASE_URL}", "up"]
+    volumes:
+      - ./db/migrations:/migrations:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - data
+
+  seed:
+    image: postgis/postgis:17-3.5-alpine
+    profiles: ["tools"]
+    command: ["psql", "${DATABASE_URL:?set DATABASE_URL}", "-v", "ON_ERROR_STOP=1", "-f", "/seed/001_demo.sql"]
+    volumes:
+      - ./db/seeds:/seed:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - data
+
+  api:
+    <<: *app-base
+    command: ["/app/api"]
+    environment:
+      <<: *app-environment
+      SERVICE_NAME: fleet-api
+      HTTP_ADDR: 0.0.0.0:8080
+    ports:
+      - 127.0.0.1:${HTTP_PORT:-8080}:8080
+    healthcheck:
+      test: ["CMD", "/app/api", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 384m
+
+  worker:
+    <<: *app-base
+    command: ["/app/worker"]
+    environment:
+      <<: *app-environment
+      SERVICE_NAME: fleet-worker
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  outbox-publisher:
+    <<: *app-base
+    command: ["/app/outbox-publisher"]
+    environment:
+      <<: *app-environment
+      SERVICE_NAME: fleet-outbox-publisher
+    deploy:
+      resources:
+        limits:
+          memory: 192m
+
+  simulator:
+    <<: *app-base
+    profiles: ["demo"]
+    command: ["/app/simulator"]
+    environment:
+      <<: *app-environment
+      SERVICE_NAME: fleet-simulator
+      API_BASE_URL: http://api:8080/api/v1
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+
+  web:
+    image: fleet-tracking-web:${IMAGE_TAG:-latest}
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      BACKEND_URL: ${BACKEND_URL:-http://api:8080}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+    ports:
+      - 127.0.0.1:${WEB_PORT:-3000}:3000
+    depends_on:
+      api:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    networks:
+      - app
+
+  reverse-proxy:
+    image: nginxinc/nginx-unprivileged:1.27-alpine
+    profiles: ["demo"]
+    restart: unless-stopped
+    ports:
+      - 127.0.0.1:${PROXY_PORT:-8088}:8080
+    volumes:
+      - ./deployments/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+      - web
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /var/cache/nginx:size=32m,mode=0755
+      - /var/run:size=4m,mode=0755
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - edge
+      - app
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    ports:
+      - 127.0.0.1:${PROMETHEUS_PORT:-9090}:9090
+    volumes:
+      - ./deployments/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    networks:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    ports:
+      - 127.0.0.1:${GRAFANA_PORT:-3001}:3000
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./deployments/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deployments/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 384m
+    networks:
+      - monitoring
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.132.0
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+    volumes:
+      - ./deployments/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    networks:
+      - app
+      - monitoring
+
+volumes:
+  postgres-data:
+  redis-data:
+  rabbitmq-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  edge:
+  app:
+    internal: true
+  data:
+    internal: true
+  monitoring:
+    internal: true

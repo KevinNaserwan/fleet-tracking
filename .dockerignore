@@ -1,0 +1,17 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+**/.DS_Store
+**/.idea
+**/.vscode
+**/*.log
+bin
+dist
+tmp
+.tmp
+/backups/
+web/.next
+web/node_modules
+web/coverage

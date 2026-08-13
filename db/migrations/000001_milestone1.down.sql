@@ -1,0 +1,19 @@
+BEGIN;
+
+DROP TABLE IF EXISTS audit_logs;
+DROP TABLE IF EXISTS geofences;
+DROP TABLE IF EXISTS vehicle_latest_positions;
+DROP TABLE IF EXISTS device_assignments;
+DROP TABLE IF EXISTS devices;
+DROP TABLE IF EXISTS vehicles;
+DROP TABLE IF EXISTS refresh_tokens;
+DROP TABLE IF EXISTS role_permissions;
+DROP TABLE IF EXISTS user_roles;
+DROP TABLE IF EXISTS permissions;
+DROP TABLE IF EXISTS roles;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS tenants;
+
+DROP FUNCTION IF EXISTS set_updated_at();
+
+COMMIT;

@@ -1,0 +1,22 @@
+{
+  "annotations":{"list":[]},
+  "editable":false,
+  "graphTooltip":1,
+  "panels":[
+    {"type":"stat","title":"API request rate","id":1,"gridPos":{"h":8,"w":6,"x":0,"y":0},"targets":[{"expr":"sum(rate(http_requests_total[5m]))","refId":"A"}]},
+    {"type":"stat","title":"P95 API latency","id":2,"gridPos":{"h":8,"w":6,"x":6,"y":0},"targets":[{"expr":"histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))","refId":"A"}]},
+    {"type":"stat","title":"Readiness failures","id":3,"gridPos":{"h":8,"w":6,"x":12,"y":0},"targets":[{"expr":"sum(rate(http_requests_total{route=\"/health/ready\",status!~\"2..\"}[5m]))","refId":"A"}]},
+    {"type":"stat","title":"RabbitMQ messages ready","id":4,"gridPos":{"h":8,"w":6,"x":18,"y":0},"targets":[{"expr":"sum(rabbitmq_queue_messages_ready)","refId":"A"}]},
+    {"type":"timeseries","title":"HTTP requests by status","id":5,"gridPos":{"h":10,"w":12,"x":0,"y":8},"targets":[{"expr":"sum by (status) (rate(http_requests_total[5m]))","legendFormat":"{{status}}","refId":"A"}]},
+    {"type":"timeseries","title":"Go runtime memory","id":6,"gridPos":{"h":10,"w":12,"x":12,"y":8},"targets":[{"expr":"go_memstats_heap_alloc_bytes","legendFormat":"heap","refId":"A"}]}
+  ],
+  "refresh":"10s",
+  "schemaVersion":41,
+  "tags":["fleet","milestone-1"],
+  "templating":{"list":[]},
+  "time":{"from":"now-1h","to":"now"},
+  "timezone":"browser",
+  "title":"Fleet Tracking / Foundation",
+  "uid":"fleet-foundation",
+  "version":1
+}
